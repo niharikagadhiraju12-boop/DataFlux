@@ -1,0 +1,8 @@
+# Minimal core dependencies for Business Entity Resolution pipeline
+# Only libraries genuinely required for local processing, modeling, and evaluation.
+# No external data APIs, geocoders, or online resolution services.
+
+pandas>=2.0.0
+numpy>=1.24.0
+scikit-learn>=1.3.0
+scipy>=1.11.0
