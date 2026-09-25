@@ -2,98 +2,146 @@
 Matching Model Module for Business Entity Resolution.
 
 Responsibilities:
-- Training and configuring the classification model for entity pair matching
-- Generating match probability predictions for candidate pairs
-- Deciding match status based on thresholding tuned for the target metric
-- Serializing and loading trained models
-
-NOTE: The model will eventually predict whether a candidate pair represents
-the same business entity. Do not train or implement the final model yet.
+- Training and configuring the classification model
+- Generating match probabilities
+- Generating optional threshold-based predictions
+- Saving and loading trained model artifacts
 """
 
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
+
+import joblib
 import pandas as pd
+from sklearn.linear_model import LogisticRegression
 
 
 class EntityMatchingModel:
     """
-    Wrapper for the entity matching classification model.
+    Wrapper for a binary classification model used for
+    business entity matching.
     """
 
-    def __init__(self, model_params: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(
+        self,
+        model_params: Optional[Dict[str, Any]] = None,
+    ) -> None:
         """
-        Initialize the matching model configuration.
+        Initialize the matching model.
 
-        Parameters:
-            model_params: Optional dictionary of hyperparameters.
+        Parameters
+        ----------
+        model_params:
+            Optional Logistic Regression hyperparameters.
         """
-        self.model_params = model_params or {}
-        self.model: Optional[Any] = None
 
-    def fit(self, X: pd.DataFrame, y: pd.Series, **kwargs: Any) -> "EntityMatchingModel":
+        default_params = {
+            "class_weight": "balanced",
+            "max_iter": 1000,
+            "random_state": 42,
+        }
+
+        if model_params:
+            default_params.update(model_params)
+
+        self.model_params = default_params
+        self.model: Optional[LogisticRegression] = None
+
+    def fit(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        **kwargs: Any,
+    ) -> "EntityMatchingModel":
         """
-        Train the matching model on candidate pair features and labels.
-
-        Parameters:
-            X: Feature matrix of candidate pairs.
-            y: Binary target labels indicating true match (1) or non-match (0).
-            **kwargs: Additional training arguments.
-
-        Returns:
-            self
+        Train the entity matching classifier.
         """
-        raise NotImplementedError(
-            "Model training will be implemented once training data and features are ready."
+
+        self.model = LogisticRegression(
+            **self.model_params
         )
 
-    def predict_proba(self, X: pd.DataFrame) -> Any:
-        """
-        Predict match probabilities for candidate pairs.
+        self.model.fit(X, y, **kwargs)
 
-        Parameters:
-            X: Feature matrix of candidate pairs.
+        return self
 
-        Returns:
-            Probability estimates for matching pairs.
+    def predict_proba(
+        self,
+        X: pd.DataFrame,
+    ) -> Any:
         """
-        raise NotImplementedError(
-            "Prediction will be implemented once the model is trained."
+        Generate probability that each candidate pair is a match.
+        """
+
+        if self.model is None:
+            raise RuntimeError(
+                "Model has not been fitted yet."
+            )
+
+        return self.model.predict_proba(X)
+
+    def predict(
+        self,
+        X: pd.DataFrame,
+        threshold: float = 0.5,
+    ) -> Any:
+        """
+        Generate binary match predictions.
+
+        Threshold selection is intentionally kept outside
+        model training so that validation can tune it
+        for the target metric.
+        """
+
+        probabilities = self.predict_proba(X)[:, 1]
+
+        return (probabilities >= threshold).astype(int)
+
+    def save(
+        self,
+        filepath: Union[str, Path],
+    ) -> None:
+        """
+        Save the trained model to disk.
+        """
+
+        if self.model is None:
+            raise RuntimeError(
+                "Cannot save an unfitted model."
+            )
+
+        filepath = Path(filepath)
+
+        filepath.parent.mkdir(
+            parents=True,
+            exist_ok=True,
         )
 
-    def predict(self, X: pd.DataFrame, threshold: float = 0.5) -> Any:
-        """
-        Predict binary match decisions based on classification threshold.
-
-        Parameters:
-            X: Feature matrix of candidate pairs.
-            threshold: Probability decision threshold.
-
-        Returns:
-            Binary predictions (1 = match, 0 = non-match).
-        """
-        raise NotImplementedError(
-            "Prediction will be implemented once the model is trained."
+        joblib.dump(
+            {
+                "model": self.model,
+                "model_params": self.model_params,
+            },
+            filepath,
         )
-
-    def save(self, filepath: Union[str, Path]) -> None:
-        """
-        Save the trained model artifact to disk.
-
-        Parameters:
-            filepath: Destination path for the model artifact.
-        """
-        raise NotImplementedError("Model serialization will be implemented when model is ready.")
 
     @classmethod
-    def load(cls, filepath: Union[str, Path]) -> "EntityMatchingModel":
+    def load(
+        cls,
+        filepath: Union[str, Path],
+    ) -> "EntityMatchingModel":
         """
-        Load a serialized model artifact from disk.
-
-        Parameters:
-            filepath: Path to the serialized model artifact.
-
-        Returns:
-            Loaded EntityMatchingModel instance.
+        Load a previously saved model.
         """
-        raise NotImplementedError("Model loading will be implemented when model is ready.")
+
+        filepath = Path(filepath)
+
+        artifact = joblib.load(filepath)
+
+        instance = cls(
+            model_params=artifact["model_params"]
+        )
+
+        instance.model = artifact["model"]
+
+        return instance
