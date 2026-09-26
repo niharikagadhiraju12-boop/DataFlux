@@ -4,19 +4,47 @@ Feature Engineering Module for Business Entity Resolution.
 Responsibilities:
 - Extract pairwise comparison features for candidate entity pairs
 - Produce numerical features for ML-based entity matching
+- Integrate shared Unicode-safe preprocessing logic from Member 1
 """
 
+import re
+import unicodedata
 from typing import Any
+from difflib import SequenceMatcher
 
 import pandas as pd
-from difflib import SequenceMatcher
+
+# Import Member 1's shared Unicode-safe preprocessing logic
+try:
+    from .preprocessing import normalize_country, normalize_text
+except ImportError:
+    try:
+        from src.preprocessing import normalize_country, normalize_text
+    except ImportError:
+        try:
+            from preprocessing import normalize_country, normalize_text
+        except ImportError:
+            def normalize_text(value: Any) -> str:
+                if pd.isna(value):
+                    return ""
+                text = unicodedata.normalize("NFKC", str(value)).casefold()
+                text = re.sub(r"[^\w\s]", " ", text, flags=re.UNICODE)
+                return re.sub(r"\s+", " ", text).strip()
+
+            def normalize_country(value: Any) -> str:
+                if pd.isna(value):
+                    return ""
+                text = unicodedata.normalize("NFKC", str(value)).casefold()
+                return re.sub(r"\s+", " ", text).strip()
 
 
 def text_normalize(value: Any) -> str:
-    """Convert a value to a safe normalized string."""
-    if pd.isna(value):
-        return ""
-    return str(value).strip().lower()
+    """
+    Safely convert any value to normalized text using shared preprocessing logic.
+    Applies NFKC normalization, Unicode-aware lowercasing (casefold),
+    and removes punctuation while preserving multilingual alphanumeric tokens.
+    """
+    return normalize_text(value)
 
 
 def token_jaccard(a: Any, b: Any) -> float:
@@ -137,95 +165,80 @@ def extract_pair_features(
     # Business-name features
     # ------------------------------------------------------------------
 
-    name_a_norm = df["name_a"].fillna("").astype(str).str.strip().str.lower()
-    name_b_norm = df["name_b"].fillna("").astype(str).str.strip().str.lower()
+    name_a_norm = [text_normalize(x) for x in df["name_a"]]
+    name_b_norm = [text_normalize(x) for x in df["name_b"]]
 
-    df["name_exact"] = (
-        name_a_norm == name_b_norm
-    ).astype(int)
+    df["name_exact"] = [
+        int(x != "" and x == y)
+        for x, y in zip(name_a_norm, name_b_norm)
+    ]
 
     df["name_jaccard"] = [
-        token_jaccard(a, b)
-        for a, b in zip(df["name_a"], df["name_b"])
+        token_jaccard(x, y)
+        for x, y in zip(name_a_norm, name_b_norm)
     ]
 
     df["name_edit_similarity"] = [
-        edit_similarity(a, b)
-        for a, b in zip(df["name_a"], df["name_b"])
+        edit_similarity(x, y)
+        for x, y in zip(name_a_norm, name_b_norm)
     ]
 
     df["name_length_diff"] = [
-        length_difference(a, b)
-        for a, b in zip(df["name_a"], df["name_b"])
+        length_difference(x, y)
+        for x, y in zip(name_a_norm, name_b_norm)
     ]
 
     # ------------------------------------------------------------------
     # Address features
     # ------------------------------------------------------------------
 
-    address_a_norm = (
-        df["address_a"].fillna("").astype(str).str.strip().str.lower()
-    )
+    address_a_norm = [text_normalize(x) for x in df["address_a"]]
+    address_b_norm = [text_normalize(x) for x in df["address_b"]]
 
-    address_b_norm = (
-        df["address_b"].fillna("").astype(str).str.strip().str.lower()
-    )
-
-    df["address_exact"] = (
-        address_a_norm == address_b_norm
-    ).astype(int)
+    df["address_exact"] = [
+        int(x != "" and x == y)
+        for x, y in zip(address_a_norm, address_b_norm)
+    ]
 
     df["address_jaccard"] = [
-        token_jaccard(a, b)
-        for a, b in zip(df["address_a"], df["address_b"])
+        token_jaccard(x, y)
+        for x, y in zip(address_a_norm, address_b_norm)
     ]
 
     df["address_edit_similarity"] = [
-        edit_similarity(a, b)
-        for a, b in zip(df["address_a"], df["address_b"])
+        edit_similarity(x, y)
+        for x, y in zip(address_a_norm, address_b_norm)
     ]
 
     df["address_length_diff"] = [
-        length_difference(a, b)
-        for a, b in zip(df["address_a"], df["address_b"])
+        length_difference(x, y)
+        for x, y in zip(address_a_norm, address_b_norm)
     ]
 
     # ------------------------------------------------------------------
     # Country feature
     # ------------------------------------------------------------------
 
-    country_a = (
-        df["country_a"].fillna("").astype(str).str.strip().str.lower()
-    )
+    country_a = [normalize_country(x) for x in df["country_a"]]
+    country_b = [normalize_country(x) for x in df["country_b"]]
 
-    country_b = (
-        df["country_b"].fillna("").astype(str).str.strip().str.lower()
-    )
-
-    df["country_match"] = (
-        (country_a != "")
-        & (country_b != "")
-        & (country_a == country_b)
-    ).astype(int)
+    df["country_match"] = [
+        int(a != "" and b != "" and a == b)
+        for a, b in zip(country_a, country_b)
+    ]
 
     # ------------------------------------------------------------------
     # Token-count features
     # ------------------------------------------------------------------
 
     df["name_token_count_diff"] = [
-        abs(
-            len(text_normalize(a).split())
-            - len(text_normalize(b).split())
-        )
-        for a, b in zip(df["name_a"], df["name_b"])
+        abs(len(x.split()) - len(y.split()))
+        for x, y in zip(name_a_norm, name_b_norm)
     ]
 
     df["address_token_count_diff"] = [
-        abs(
-            len(text_normalize(a).split())
-            - len(text_normalize(b).split())
-        )
-        for a, b in zip(df["address_a"], df["address_b"])
+        abs(len(x.split()) - len(y.split()))
+        for x, y in zip(address_a_norm, address_b_norm)
     ]
 
     return df

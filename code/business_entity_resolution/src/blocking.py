@@ -34,32 +34,40 @@ try:
     )
 except ImportError:
     try:
-        from preprocessing import (
+        from src.preprocessing import (
             normalize_address,
             normalize_country,
             normalize_name,
             normalize_text,
         )
     except ImportError:
-        # Fallback implementation if imported from non-standard path
-        def normalize_text(value: Any) -> str:
-            if pd.isna(value):
-                return ""
-            text = unicodedata.normalize("NFKC", str(value)).casefold()
-            text = re.sub(r"[^\w\s]", " ", text, flags=re.UNICODE)
-            return re.sub(r"\s+", " ", text).strip()
+        try:
+            from preprocessing import (
+                normalize_address,
+                normalize_country,
+                normalize_name,
+                normalize_text,
+            )
+        except ImportError:
+            # Fallback implementation if imported from non-standard path
+            def normalize_text(value: Any) -> str:
+                if pd.isna(value):
+                    return ""
+                text = unicodedata.normalize("NFKC", str(value)).casefold()
+                text = re.sub(r"[^\w\s]", " ", text, flags=re.UNICODE)
+                return re.sub(r"\s+", " ", text).strip()
 
-        def normalize_name(value: Any) -> str:
-            return normalize_text(value)
+            def normalize_name(value: Any) -> str:
+                return normalize_text(value)
 
-        def normalize_address(value: Any) -> str:
-            return normalize_text(value)
+            def normalize_address(value: Any) -> str:
+                return normalize_text(value)
 
-        def normalize_country(value: Any) -> str:
-            if pd.isna(value):
-                return ""
-            text = unicodedata.normalize("NFKC", str(value)).casefold()
-            return re.sub(r"\s+", " ", text).strip()
+            def normalize_country(value: Any) -> str:
+                if pd.isna(value):
+                    return ""
+                text = unicodedata.normalize("NFKC", str(value)).casefold()
+                return re.sub(r"\s+", " ", text).strip()
 
 
 # Common corporate suffixes and high-frequency terms to avoid as sole blocking keys.
